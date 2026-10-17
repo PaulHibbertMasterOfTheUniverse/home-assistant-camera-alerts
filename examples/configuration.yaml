@@ -1,0 +1,7 @@
+# Merge into your existing configuration; do not duplicate homeassistant: or stream:.
+homeassistant:
+  allowlist_external_dirs:
+    - /config/www/camera-alerts
+
+# Needed for camera.record. default_config normally loads stream already.
+stream:

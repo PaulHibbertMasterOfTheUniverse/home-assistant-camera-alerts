@@ -1,0 +1,5 @@
+# Paste as a manual card in a dashboard view whose path matches your blueprint input.
+type: picture-entity
+entity: camera.replace_with_your_camera
+camera_view: live
+show_state: false

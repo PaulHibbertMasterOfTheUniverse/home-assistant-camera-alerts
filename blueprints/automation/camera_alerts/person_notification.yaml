@@ -1,0 +1,154 @@
+blueprint:
+  name: Camera alerts with snapshot and optional clip
+  description: >-
+    Person/motion alerts for the Companion App. Install the companion player
+    and create /config/www/camera-alerts first; see README. Files under /local
+    are not authenticated. Recording requires camera.record support.
+  domain: automation
+  input:
+    sensor:
+      name: Person or motion sensor
+      selector:
+        entity:
+          domain: binary_sensor
+    camera:
+      name: Camera
+      selector:
+        entity:
+          domain: camera
+    notify_service:
+      name: Phone notification action
+      description: Full action name, for example notify.mobile_app_my_phone
+      selector:
+        text: {}
+    location:
+      name: Location name
+      default: Front door
+      selector:
+        text: {}
+    linger:
+      name: Detection must remain on for this many seconds
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 300
+          unit_of_measurement: s
+          mode: box
+    cooldown:
+      name: Cooldown after actions finish (seconds)
+      default: 60
+      selector:
+        number:
+          min: 0
+          max: 3600
+          mode: box
+    snooze:
+      name: Optional snooze timer
+      description: Select one timer; active, paused or unavailable timers suppress alerts.
+      default: []
+      selector:
+        entity:
+          domain: timer
+          multiple: true
+    dashboard:
+      name: Live camera dashboard path
+      default: /lovelace/cameras
+      selector:
+        text: {}
+    record:
+      name: Record a clip
+      description: Enable only after testing camera.record for your camera.
+      default: false
+      selector:
+        boolean: {}
+    duration:
+      name: Clip duration (seconds)
+      default: 10
+      selector:
+        number:
+          min: 5
+          max: 60
+          mode: box
+    lookback:
+      name: Requested lookback (seconds)
+      description: Best effort; requires an already active HLS stream. Zero is most portable.
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 30
+          mode: box
+variables:
+  camera_entity: !input camera
+  snooze_timers: !input snooze
+  recording_enabled: !input record
+  clip_duration: !input duration
+  live_path: !input dashboard
+  location_name: !input location
+trigger:
+  - platform: state
+    entity_id: !input sensor
+    from: 'off'
+    to: 'on'
+    for:
+      seconds: !input linger
+condition:
+  - condition: template
+    value_template: >-
+      {{ snooze_timers | reject('is_state', 'idle') | list | count == 0 }}
+action:
+  - variables:
+      event_name: "{{ camera_entity | replace('.', '_') }}_{{ now().strftime('%Y%m%d_%H%M%S_%f') }}"
+  - variables:
+      snapshot_file: "/config/www/camera-alerts/{{ event_name }}.jpg"
+      clip_file: "/config/www/camera-alerts/{{ event_name }}.mp4"
+      image_url: "/local/camera-alerts/{{ event_name }}.jpg"
+      player_url: "/local/camera-clip-player.html?clip={{ event_name }}.mp4&live={{ live_path | urlencode }}"
+  - service: camera.snapshot
+    target:
+      entity_id: !input camera
+    data:
+      filename: "{{ snapshot_file }}"
+  - service: !input notify_service
+    data:
+      title: Camera alert
+      message: "Person or motion detected at {{ location_name }}."
+      data:
+        image: "{{ image_url }}"
+        url: "{{ live_path }}"
+        clickAction: "{{ live_path }}"
+        tag: "{{ event_name }}"
+        group: camera-alerts
+  - if:
+      - condition: template
+        value_template: "{{ recording_enabled }}"
+    then:
+      - service: camera.record
+        continue_on_error: true
+        target:
+          entity_id: !input camera
+        data:
+          filename: "{{ clip_file }}"
+          duration: !input duration
+          lookback: !input lookback
+      - delay:
+          seconds: "{{ clip_duration | int + 5 }}"
+      - service: !input notify_service
+        data:
+          title: Camera alert
+          message: "{{ location_name }} — tap to check the event clip."
+          data:
+            image: "{{ image_url }}"
+            url: "{{ player_url }}"
+            clickAction: "{{ player_url }}"
+            tag: "{{ event_name }}"
+            group: camera-alerts
+            actions:
+              - action: URI
+                title: Live camera
+                uri: "{{ live_path }}"
+  - delay:
+      seconds: !input cooldown
+mode: single
+max_exceeded: silent
